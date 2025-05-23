@@ -24,10 +24,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         return Inertia::render('chat/chatapp');
     })->name('chatapp');
 
-
+    Route::post('/chatapp/stream', [ChatController::class, 'streamMessage']);
     Route::get('/chatapp/history', [ChatController::class, 'getChatList']);
     Route::get('/chatapp/messages/{chat}', [ChatController::class, 'getChatMessages']);
-    Route::post('/chatapp/send', [ChatController::class, 'storeMessage']);
+    // Route::post('/chatapp/send', [ChatController::class, 'storeMessage']);
 });
 
 

@@ -44,11 +44,13 @@ export default function ChatDrawer({ onSelectChat, refreshKey, selectedChatId }:
                             className={`
                                         w-full text-left px-4 py-2 rounded-md transition-colors duration-200
                                         hover:bg-[#ECECEC] hover:text-gray-900
-                                        text-sm text-gray-900 truncate
+                                        text-sm text-gray-900
                                         ${chat.id === selectedChatId ? 'bg-[#ECECEC] text-black' : ''}
                                     `}
                         >
+                            <span>
                             {chat.title || "Untitled"}
+                            </span>
                         </button>
 
                     ))}

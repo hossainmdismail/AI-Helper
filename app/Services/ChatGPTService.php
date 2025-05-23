@@ -14,6 +14,7 @@ class ChatGPTService
                 ['role' => 'system', 'content' => 'You are ChatGPT, a large language model trained by OpenAI. Follow the user\'s instructions carefully. Respond conversationally.'],
                 ['role' => 'user', 'content' => $prompt],
             ],
+            'max_tokens' => 5000,
         ]);
     }
 }

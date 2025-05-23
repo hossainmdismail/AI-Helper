@@ -17,7 +17,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 
 export default function ChatApp() {
     const [messages, setMessages] = useState<
-        { sender_type: "user" | "assistant"; content: string }[]
+        { sender_type: "user" | "assistant"; content: string; streaming?: boolean; }[]
     >([]);
     const [thinking, setThinking] = useState(false);
 
@@ -35,52 +35,80 @@ export default function ChatApp() {
         images: null,
     });
 
-    const handleSend = async (message: string) => {
+    const handleSend = async (message: string, images: File[] | null) => {
+        // Add user message immediately
         setMessages((prev) => [...prev, { sender_type: "user", content: message }]);
         setThinking(true);
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
 
         try {
             const formData = new FormData();
             formData.append("message", message);
+
             if (chatId) {
                 formData.append("chat_id", chatId.toString());
             }
+
             if (data.images) {
                 data.images.forEach((img, index) => {
                     formData.append(`images[${index}]`, img);
                 });
             }
 
-            const response = await axios.post("/chatapp/send", formData, {
+            const response = await fetch("/chatapp/stream", {
+                method: "POST",
                 headers: {
-                    "Content-Type": "multipart/form-data",
+                    "X-CSRF-TOKEN": csrfToken,
+                    // Do NOT set Content-Type for FormData
                 },
+                body: formData,
             });
 
-            // ✅ Grab new chat_id from response JSON
-            if (response.data?.chat_id) {
-                if (!chatId) {
-                    refreshDrawer();
-                }
-                setChatId(response.data.chat_id);
+            if (!response.ok || !response.body) {
+                throw new Error("Failed to connect to stream");
             }
 
-            // reset the form inputs (like useForm reset)
-            reset("message", "images");
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let assistantMsg = "";
 
-            // Fake assistant reply for demo
-            setTimeout(() => {
-                setMessages((prev) => [
-                    ...prev,
-                    { sender_type: "assistant", content: response.data?.message },
-                ]);
-                setThinking(false);
-            }, 1000);
-        } catch (error) {
-            console.error("Error sending message:", error);
+            // Add a streaming assistant message placeholder
+            setMessages((prev) => [
+                ...prev,
+                { sender_type: "assistant", content: "", streaming: true },
+            ]);
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                assistantMsg += chunk;
+
+                // Update the streaming message content without duplicating
+                setMessages((prev) => {
+                    const others = prev.filter((m) => !m.streaming);
+                    return [...others, { sender_type: "assistant", content: assistantMsg, streaming: true }];
+                });
+            }
+
+            // Replace the streaming message with the final one (no streaming flag)
+            setMessages((prev) => {
+                const others = prev.filter((m) => !m.streaming);
+                return [...others, { sender_type: "assistant", content: assistantMsg }];
+            });
+
+            reset("message", "images");
+            setThinking(false);
+
+            if (!chatId) refreshDrawer();
+
+        } catch (err) {
+            console.error("Stream error:", err);
             setThinking(false);
         }
     };
+
 
     const fetchMessages = (id: number) => {
         axios.get(`/chatapp/messages/${id}`).then((res) => {
@@ -94,12 +122,14 @@ export default function ChatApp() {
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="AI Chat" />
-            <div className="flex flex-col h-screen">
-                <div className="flex-grow overflow-y-auto mt-11">
-                    <ChatDrawer onSelectChat={fetchMessages} selectedChatId={chatId} refreshKey={refreshKey} />
-                    <ChatWindow messages={messages} thinking={thinking} type={chatId}/>
+            <div className="w-full">
+                <ChatDrawer onSelectChat={fetchMessages} selectedChatId={chatId} refreshKey={refreshKey} />
+                <div className="flex flex-col h-screen w-full md:w-full lg:w-4/5 m-auto">
+                    <div className="flex-grow overflow-y-auto mt-16">
+                        <ChatWindow messages={messages} thinking={thinking} type={chatId} />
+                    </div>
+                    <MessageInput onSend={handleSend} />
                 </div>
-                <MessageInput onSend={handleSend} />
             </div>
         </AppLayout>
     );
