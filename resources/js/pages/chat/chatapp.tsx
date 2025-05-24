@@ -16,8 +16,9 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 export default function ChatApp() {
+    // State to manage messages , chat ID , thinking status and error
     const [messages, setMessages] = useState<
-        { sender_type: "user" | "assistant"; content: string; streaming?: boolean; }[]
+        { sender_type: "user" | "assistant" | "error"; content: string; streaming?: boolean; }[]
     >([]);
     const [thinking, setThinking] = useState(false);
 
@@ -36,6 +37,7 @@ export default function ChatApp() {
     });
 
     const handleSend = async (message: string, images: File[] | null) => {
+
         // Add user message immediately
         setMessages((prev) => [...prev, { sender_type: "user", content: message }]);
         setThinking(true);
@@ -49,12 +51,11 @@ export default function ChatApp() {
                 formData.append("chat_id", chatId.toString());
             }
 
-            if (data.images) {
-                data.images.forEach((img, index) => {
-                    formData.append(`images[${index}]`, img);
+            if (images) {
+                images.forEach((image) => {
+                    formData.append("images[]", image); // ✅ important!
                 });
             }
-
             const response = await fetch("/chatapp/stream", {
                 method: "POST",
                 headers: {
@@ -105,7 +106,13 @@ export default function ChatApp() {
 
         } catch (err) {
             console.error("Stream error:", err);
+            setMessages(prev => [
+                ...prev,
+                { sender_type: "error", content: err.message },
+            ]);
+
             setThinking(false);
+
         }
     };
 

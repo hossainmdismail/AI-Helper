@@ -61,6 +61,7 @@
 /* app.css */
 .custom-scroll::-webkit-scrollbar {
   width: 4px;
+  height: 4px;
 }
 .custom-scroll::-webkit-scrollbar-thumb {
   background-color: #ECECEC; /* Tailwind indigo-500 */

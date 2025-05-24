@@ -3,6 +3,7 @@
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\MediaFileController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -24,10 +25,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
         return Inertia::render('chat/chatapp');
     })->name('chatapp');
 
-    Route::post('/chatapp/stream', [ChatController::class, 'streamMessage']);
+    Route::post('/chatapp/stream', [ChatController::class, 'storeMessage']);
     Route::get('/chatapp/history', [ChatController::class, 'getChatList']);
     Route::get('/chatapp/messages/{chat}', [ChatController::class, 'getChatMessages']);
-    // Route::post('/chatapp/send', [ChatController::class, 'storeMessage']);
+
+    // Media File Upload
+    Route::post('/medias/upload', [MediaFileController::class, 'store'])
+        ->name('medias.upload');
+    Route::delete('/medias/{media}', [MediaFileController::class, 'destroy'])->name('medias.destroy');
 });
 
 

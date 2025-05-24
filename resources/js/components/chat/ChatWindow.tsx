@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import MessageBubble from "@/components/chat/MessageBubble";
 
 interface Message {
-    sender_type: "user" | "assistant";
+    sender_type: "user" | "assistant" | "error";
     content: string;
 }
 

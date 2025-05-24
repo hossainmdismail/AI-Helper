@@ -12,147 +12,118 @@ use OpenAI\Laravel\Facades\OpenAI;
 
 class ChatController extends Controller
 {
-    // public function storeMessage(Request $request, ChatGPTService $chatGPT)
-    // {
-    //     $request->validate([
-    //         'message' => 'required|string',
-    //         'chat_id' => 'nullable|exists:chats,id',
-    //         'images.*' => 'nullable|image|max:2048', // validate each image
-    //     ]);
+public function storeMessage(Request $request)
+{
+    $request->validate([
+        'message' => 'required|string',
+        'chat_id' => 'nullable|exists:chats,id',
+    ]);
 
-    //     $chat = $request->chat_id
-    //         ? Chats::find($request->chat_id)
-    //         : Chats::create(['user_id' => Auth::user()->id, 'title' => mb_substr($request->message, 0, 60)]);
-
-    //     $imagePaths = [];
-
-    //     if ($request->hasFile('images')) {
-    //         foreach ($request->file('images') as $image) {
-    //             $path = $image->store('chat_images', 'public');
-    //             $imagePaths[] = '/storage/' . $path;
-    //         }
-    //     }
-
-    //     $message = new Message();
-    //     $message->chat_id = $chat->id;
-    //     $message->user_id = Auth::user()->id;
-    //     $message->message_type = 'text';
-    //     $message->sender_type = 'user';
-    //     $message->content = $request->message;
-    //     $message->save();
-
-    //     $response = $chatGPT->ask($request->message); // returns full OpenAI response
-    //     $aiReply = $response->choices[0]->message->content ?? 'No response from AI.';
-
-    //     // 5. Save AI message
-    //     $aiMessage = new Message();
-    //     $aiMessage->chat_id = $chat->id;
-    //     $aiMessage->user_id = null; // or system ID
-    //     $aiMessage->message_type = 'text';
-    //     $aiMessage->sender_type = 'ai';
-    //     $aiMessage->content = $aiReply;
-    //     $aiMessage->save();
-
-
-    //     return response()->json([
-    //         'chat_id' => $chat->id,
-    //         'message' => $aiMessage->content,
-    //     ]);
-    // }
-
-    public function storeMessage(Request $request)
-    {
-        $request->validate([
-            'message' => 'required|string',
-            'chat_id' => 'nullable|exists:chats,id',
-            'images.*' => 'nullable|image|max:2048',
+    $chat = $request->chat_id
+        ? Chats::find($request->chat_id)
+        : Chats::create([
+            'user_id' => Auth::id(),
+            'title' => mb_substr($request->message, 0, 60),
         ]);
 
-        $chat = $request->chat_id
-            ? Chats::find($request->chat_id)
-            : Chats::create([
-                'user_id' => Auth::id(),
-                'title' => mb_substr($request->message, 0, 60),
+    // Save user message first
+    $userMessage = new Message();
+    $userMessage->chat_id = $chat->id;
+    $userMessage->user_id = Auth::id();
+    $userMessage->message_type = 'text';
+    $userMessage->sender_type = 'user';
+    $userMessage->content = $request->message;
+    $userMessage->save();
+
+    // Prepare media content here
+    $mediaContent = [];
+    if ($request->images) {
+        $mediaContent = collect($request->images)->map(function ($url) {
+            return [
+                'type' => 'image_url',
+                'image_url' => [
+                    'url' => $url,
+                ],
+            ];
+        })->toArray();
+    }
+
+    return new StreamedResponse(function () use ($request, $chat, $mediaContent) {
+        $fullResponse = '';
+
+        try {
+            $response = OpenAI::chat()->createStreamed([
+                'model' => 'gpt-4o',
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => "You are ChatGPT. Always respond in **Markdown**."
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => array_merge(
+                            [['type' => 'text', 'text' => $request->message]],
+                            $mediaContent
+                        )
+                    ]
+                ],
+                'stream' => true,
             ]);
 
-        $imagePaths = [];
-        if ($request->hasFile('images')) {
-            foreach ($request->file('images') as $image) {
-                $path = $image->store('chat_images', 'public');
-                $imagePaths[] = '/storage/' . $path;
+            foreach ($response as $chunk) {
+                $content = $chunk->choices[0]->delta->content ?? '';
+                if ($content !== '') {
+                    $fullResponse .= $content;
+
+                    echo $content;
+                    ob_flush();
+                    flush();
+                }
+
+                if (connection_aborted()) {
+                    break;
+                }
             }
+
+            // Save AI response after streaming
+            if (!empty($fullResponse)) {
+                $aiMessage = new Message();
+                $aiMessage->chat_id = $chat->id;
+                $aiMessage->user_id = null;
+                $aiMessage->message_type = 'text';
+                $aiMessage->sender_type = 'ai';
+                $aiMessage->content = $fullResponse;
+                $aiMessage->save();
+            }
+        } catch (\Exception $e) {
+            echo "data: " . json_encode(['error' => 'Something went wrong while streaming.']) . "\n\n";
+            ob_flush();
+            flush();
         }
-
-        // Save user's message
-        $userMessage = new Message();
-        $userMessage->chat_id = $chat->id;
-        $userMessage->user_id = Auth::id();
-        $userMessage->message_type = 'text';
-        $userMessage->sender_type = 'user';
-        $userMessage->content = $request->message;
-        $userMessage->save();
-
-        // AI streaming response
-        return new StreamedResponse(function () use ($request, $chat) {
-            $fullResponse = '';
-
-            try {
-                $response = OpenAI::chat()->createStreamed([
-                    'model' => 'gpt-4.1', // or 'gpt-4' or 'gpt-4o'
-                    'messages' => [
-                        [
-                            'role' => 'system',
-                            'content' => "You are ChatGPT, a large language model trained by OpenAI. Always respond in **Markdown format**. Use headings, lists, code blocks, bold, italics, and everything Markdown to make your replies clear and readable. Stay conversational and helpful."
-                        ],
-                        ['role' => 'user', 'content' => $request->message],
-                    ],
-                    'stream' => true,
-                ]);
-
-                foreach ($response as $chunk) {
-                    $content = $chunk->choices[0]->delta->content ?? '';
-                    if ($content !== '') {
-                        $fullResponse .= $content;
-
-                        echo $content;
-                        ob_flush();
-                        flush();
-                    }
-
-                    if (connection_aborted()) {
-                        break;
-                    }
-                }
-
-                // Save AI response after stream
-                if (!empty($fullResponse)) {
-                    $aiMessage = new Message();
-                    $aiMessage->chat_id = $chat->id;
-                    $aiMessage->user_id = null;
-                    $aiMessage->message_type = 'text';
-                    $aiMessage->sender_type = 'ai';
-                    $aiMessage->content = $fullResponse;
-                    $aiMessage->save();
-                }
-            } catch (\Exception $e) {
-                echo "data: " . json_encode(['error' => 'Something went wrong while streaming.']) . "\n\n";
-                ob_flush();
-                flush();
-            }
-        }, 200, [
-            'Content-Type' => 'text/event-stream',
-            'Cache-Control' => 'no-cache',
-            'X-Accel-Buffering' => 'no',
-            'Connection' => 'keep-alive',
-        ]);
-    }
+    }, 200, [
+        'Content-Type' => 'text/event-stream',
+        'Cache-Control' => 'no-cache',
+        'X-Accel-Buffering' => 'no',
+        'Connection' => 'keep-alive',
+    ]);
+}
 
 
     public function streamMessage(Request $request)
     {
         return response()->json([
-            'message' => $request->all(),
+            'message' => 'This is a test message',
+        ], 500);
+        $files = $request->file('images'); // This will be an array of UploadedFile
+
+        return response()->json([
+            'count' => count($files),
+            'filenames' => collect($files)->map(fn($file) => $file->getClientOriginalName()),
+            'mime_types' => collect($files)->map(fn($file) => $file->getMimeType()),
+            'sizes_kb' => collect($files)->map(fn($file) => round($file->getSize() / 1024, 2) . ' KB'),
         ]);
+
+
         $text = "Yo this is a test stream, coming at you live word by word. Ain’t this cool or what?";
         $words = explode(" ", $text);
 
